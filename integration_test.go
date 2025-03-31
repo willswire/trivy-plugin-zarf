@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// TestLocalFileIntegration tests against a real zarf package
+// TestFullIntegration tests against a real zarf package
 // Run with: go test -tags=integration -v ./...
 func TestFullIntegration(t *testing.T) {
 	// Check if zarf is installed
