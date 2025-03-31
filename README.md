@@ -18,7 +18,7 @@ The plugin handles both `application/vnd.oci.image.manifest.v1+json` and `applic
 - [Trivy](https://github.com/aquasecurity/trivy) (for vulnerability scanning)
 - [Zarf](https://github.com/defenseunicorns/zarf) (for package decompression)
 
-## Installation
+## Try it out!
 
 ```bash
 # Install the plugin
@@ -26,44 +26,53 @@ trivy plugin install github.com/willswire/trivy-plugin-zarf
 
 # Verify installation
 trivy plugin list
+
+# Pull a package and scan it
+zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+trivy zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
 ```
 
-## Usage
+## Development
 
 ```bash
 # Install the plugin locally for development
-go build -o zarf
-trivy plugin install .
-
-# Scan a local Zarf package
-trivy plugin run zarf path/to/your-zarf-package.tar
-
-# Scan a Zarf package from an OCI registry
-trivy plugin run zarf oci://ghcr.io/your-org/your-zarf-package:tag
-
-# Or run the binary directly for testing
-./zarf path/to/your-zarf-package.tar
-./zarf oci://ghcr.io/your-org/your-zarf-package:tag
-```
-
-The plugin will:
-- Extract or pull the Zarf package (from local file or OCI registry)
-- Find all container images
-- Scan each image for vulnerabilities (regardless of manifest type)
-- Report results for each image
-
-## Building from source
-
-```bash
-# Clone the repository
-git clone https://github.com/willswire/trivy-plugin-zarf.git
-cd trivy-plugin-zarf
-
-# Build
 go build
 
-# Install the plugin locally
-trivy plugin install .
+# Run the binary directly for testing
+zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+./trivy-plugin-zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
+
+# Or just reference the oci directly
+./trivy-plugin-zarf oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+```
+
+## Testing
+
+The project includes various tests to verify functionality:
+
+```bash
+# Run all tests
+go test ./...
+
+# Run specific test groups
+go test -v -run="TestFileAndDirExists|TestGetImageName"  # Unit tests
+go test -v -run="TestScanOCIImagesMock"                  # Mock tests
+go test -v -run="TestExtractAndScanIntegration"          # Integration tests
+
+# Run tests with coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+### Integration testing
+
+For integration tests, you'll need:
+1. Zarf and Trivy installed and in your PATH
+2. A Zarf package to test with (e.g., `zarf-package-dos-games-arm64-1.2.0.tar.zst`)
+
+You can download a test package with:
+```bash
+zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 ```
 
 ## License
