@@ -27,23 +27,26 @@ type Manifest struct {
 func main() {
 	var helpFlag bool
 	var outputDir string
+	var skipSignatureValidation bool
 
 	flag.BoolVar(&helpFlag, "help", false, "Display help information")
 	flag.BoolVar(&helpFlag, "h", false, "Display help information (shorthand)")
 	flag.StringVar(&outputDir, "output", "", "Output directory for JSON scan results")
 	flag.StringVar(&outputDir, "o", "", "Output directory for JSON scan results (shorthand)")
+	flag.BoolVar(&skipSignatureValidation, "skip-signature-validation", false, "Skip signature validation for OCI images")
 	flag.Parse()
 	args := flag.Args()
 
 	if helpFlag || len(args) == 0 {
 		fmt.Println("Trivy Zarf Plugin - Scan container images in Zarf packages")
-		fmt.Println("\nUsage: trivy plugin run zarf <zarf-package.tar> or <oci://registry/repository:tag>")
+		fmt.Println("\nUsage: trivy plugin run zarf [flags] <zarf-package.tar> or <oci://registry/repository:tag>")
 		fmt.Println("\nOptions:")
-		fmt.Println("  -h, --help         Display help information")
-		fmt.Println("  -o, --output DIR   Save scan results as JSON files in specified directory")
+		fmt.Println("  -h, --help                   Display help information")
+		fmt.Println("  -o, --output DIR             Save scan results as JSON files in specified directory")
+		fmt.Println("  --skip-signature-validation  Skip signature validation for OCI images")
 		fmt.Println("\nExamples:")
 		fmt.Println("  trivy zarf my-package.tar.zst")
-		fmt.Println("  trivy zarf oci://ghcr.io/my-org/my-zarf-package:latest")
+		fmt.Println("  trivy zarf --skip-signature-validation oci://ghcr.io/my-org/my-zarf-package:latest")
 		fmt.Println("  trivy zarf --output ./results my-package.tar.zst")
 		fmt.Println("\nThis plugin extracts and scans all container images in a Zarf package.")
 		os.Exit(0)
@@ -78,7 +81,7 @@ func main() {
 	if isOCIRef {
 		// Handle OCI reference
 		fmt.Println("Pulling Zarf package from OCI registry...")
-		packageFile, err := pullZarfPackage(packageRef, tempDir)
+		packageFile, err := pullZarfPackage(packageRef, tempDir, skipSignatureValidation)
 		if err != nil {
 			fmt.Printf("Error pulling Zarf package: %v\n", err)
 			os.Exit(1)
@@ -132,7 +135,7 @@ func extractZarfPackage(packagePath, targetDir string) error {
 	return nil
 }
 
-func pullZarfPackage(ociRef, targetDir string) (string, error) {
+func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool) (string, error) {
 	// Ensure the reference starts with oci://
 	if !strings.HasPrefix(ociRef, "oci://") {
 		return "", fmt.Errorf("invalid OCI reference format: %s (must start with oci://)", ociRef)
@@ -140,8 +143,12 @@ func pullZarfPackage(ociRef, targetDir string) (string, error) {
 
 	fmt.Printf("Pulling Zarf package from OCI registry: %s\n", ociRef)
 
-	// Use zarf package pull command to pull the package to the targetDir
 	cmd := exec.Command("zarf", "package", "pull", ociRef, "-o", targetDir)
+	if skipSignatureValidation {
+		cmd.Args = append(cmd.Args, "--skip-signature-validation")
+	}
+
+	// Use zarf package pull command to pull the package to the targetDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
@@ -403,6 +410,7 @@ func sanitizeFilename(imageName string) string {
 		">", "_",
 		"|", "_",
 		"\\", "_",
+		"!", "_",
 	)
 
 	// Perform the replacements

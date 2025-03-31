@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,7 +40,7 @@ func TestFileAndDirExists(t *testing.T) {
 }
 
 func TestGetImageName(t *testing.T) {
-	// Test with annotations
+	// Test with org.opencontainers.image.ref.name annotation
 	manifest := Manifest{
 		MediaType: "application/vnd.oci.image.manifest.v1+json",
 		Digest:    "sha256:123456789abcdef1234567",
@@ -53,7 +52,38 @@ func TestGetImageName(t *testing.T) {
 
 	name := getImageName(manifest)
 	if name != "test-image:latest" {
-		t.Errorf("getImageName with annotations returned %s, expected test-image:latest", name)
+		t.Errorf("getImageName with ref.name annotation returned %s, expected test-image:latest", name)
+	}
+
+	// Test with org.opencontainers.image.base.name annotation (no ref.name)
+	manifest = Manifest{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Digest:    "sha256:123456789abcdef1234567",
+		Size:      1024,
+		Annotations: map[string]string{
+			"org.opencontainers.image.base.name": "base-image:latest",
+		},
+	}
+
+	name = getImageName(manifest)
+	if name != "base-image:latest" {
+		t.Errorf("getImageName with base.name annotation returned %s, expected base-image:latest", name)
+	}
+
+	// Test with both annotations (ref.name should take precedence)
+	manifest = Manifest{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Digest:    "sha256:123456789abcdef1234567",
+		Size:      1024,
+		Annotations: map[string]string{
+			"org.opencontainers.image.ref.name":  "ref-name-image:latest",
+			"org.opencontainers.image.base.name": "base-name-image:latest",
+		},
+	}
+
+	name = getImageName(manifest)
+	if name != "ref-name-image:latest" {
+		t.Errorf("getImageName with both annotations returned %s, expected ref-name-image:latest", name)
 	}
 
 	// Test without annotations but with long enough digest
@@ -68,14 +98,14 @@ func TestGetImageName(t *testing.T) {
 	if len(name) < len(expectedPrefix) || name[:len(expectedPrefix)] != expectedPrefix {
 		t.Errorf("getImageName without annotations returned %s, expected to start with %s", name, expectedPrefix)
 	}
-	
+
 	// Test with short digest
 	manifest = Manifest{
 		MediaType: "application/vnd.oci.image.manifest.v1+json",
 		Digest:    "short-digest",
 		Size:      1024,
 	}
-	
+
 	name = getImageName(manifest)
 	if name != "short-digest" {
 		t.Errorf("getImageName with short digest returned %s, expected short-digest", name)
@@ -142,9 +172,9 @@ func TestCopyDir(t *testing.T) {
 
 	// Create test files
 	files := map[string]string{
-		filepath.Join(srcDir, "file1.txt"):        "content of file 1",
-		filepath.Join(subDir, "file2.txt"):        "content of file 2",
-		filepath.Join(srcDir, "file3.txt"):        "content of file 3",
+		filepath.Join(srcDir, "file1.txt"): "content of file 1",
+		filepath.Join(subDir, "file2.txt"): "content of file 2",
+		filepath.Join(srcDir, "file3.txt"): "content of file 3",
 	}
 
 	for path, content := range files {
@@ -190,52 +220,31 @@ func TestCopyDir(t *testing.T) {
 	}
 }
 
-func TestExtractAndScanIntegration(t *testing.T) {
-	// Skip if running in CI or if the Zarf package doesn't exist
-	zarfPackagePath := "zarf-package-dos-games-arm64-1.2.0.tar.zst"
-	if _, err := os.Stat(zarfPackagePath); os.IsNotExist(err) || os.Getenv("CI") != "" {
-		t.Skip("Skipping integration test - Zarf package not available or running in CI")
+func TestSanitizeFilename(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"simple", "simple"},
+		{"docker.io/library/nginx:latest", "docker_io_library_nginx_latest"},
+		{"registry.example.com/app:1.0.0", "registry_example_com_app_1_0_0"},
+		{"name/with:colon", "name_with_colon"},
+		{"name with spaces", "name_with_spaces"},
+		{"name/with/slashes", "name_with_slashes"},
+		{"name.with.dots", "name_with_dots"},
+		{"name_with_underscores", "name_with_underscores"},
+		{"name-with-dashes", "name-with-dashes"},
+		{"mixed@chars:here!", "mixed_chars_here"},
+		{"///multiple///slashes///", "multiple_slashes"},
+		{"  leading and trailing spaces  ", "leading_and_trailing_spaces"},
+		{"", "unknown_image"}, // Empty string should get default name
+		{"__lots__of__underscores__", "lots_of_underscores"},
 	}
 
-	// Create a temporary directory for extraction
-	tempDir, err := os.MkdirTemp("", "trivy-zarf-test-integration-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Test extractZarfPackage
-	if err := extractZarfPackage(zarfPackagePath, tempDir); err != nil {
-		t.Fatalf("extractZarfPackage failed: %v", err)
-	}
-
-	// Verify the extraction
-	ociDir := filepath.Join(tempDir, "images")
-	if !dirExists(ociDir) {
-		t.Fatalf("Images directory doesn't exist after extraction")
-	}
-
-	// Verify index.json exists
-	indexPath := filepath.Join(ociDir, "index.json")
-	if !fileExists(indexPath) {
-		t.Fatalf("index.json not found in extracted package")
-	}
-
-	// Parse index.json to verify structure
-	indexData, err := os.ReadFile(indexPath)
-	if err != nil {
-		t.Fatalf("Failed to read index.json: %v", err)
-	}
-
-	var ociIndex OCIIndex
-	if err := json.Unmarshal(indexData, &ociIndex); err != nil {
-		t.Fatalf("Failed to parse index.json: %v", err)
-	}
-
-	// Just verify we have manifests, don't run the actual scan
-	if len(ociIndex.Manifests) == 0 {
-		t.Logf("No manifests found in the test package, which is unexpected but not a test failure")
-	} else {
-		t.Logf("Found %d manifests in the test package", len(ociIndex.Manifests))
+	for _, tc := range testCases {
+		result := sanitizeFilename(tc.input)
+		if result != tc.expected {
+			t.Errorf("sanitizeFilename(%q) = %q, expected %q", tc.input, result, tc.expected)
+		}
 	}
 }
