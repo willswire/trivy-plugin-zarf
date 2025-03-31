@@ -9,11 +9,12 @@ Software, like nature, follows eternal cycles of creation and decay. Our approac
 - **Remember History**: Learn from past solutions; most problems have been solved before in different contexts.
 
 ## Build & Test Commands
-- Build: `go build -o zarf`
-- Install locally: `trivy plugin install .`
-- Run: `trivy plugin run zarf <zarf-package.tar>`
-- Development testing: `./zarf <zarf-package.tar>`
+- Run locally: `go run main.go <zarf-package.tar>`
 - CI release: Uses GoReleaser to build and package for multiple platforms
+
+## Zarf Commands that get used to do relevant things
+- Pull a zarf package from OCI: `zarf package pull oci://<image>:<tag>`
+- Extract a zarf package: `zarf tools archiver decompress <zarf-package.tar>`
 
 ## Code Style Guidelines
 - Go version: 1.21+

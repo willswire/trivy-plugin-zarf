@@ -18,10 +18,10 @@ type OCIIndex struct {
 
 // Manifest represents an entry in the manifests array
 type Manifest struct {
-	MediaType string                 `json:"mediaType"`
-	Digest    string                 `json:"digest"`
-	Size      int                    `json:"size"`
-	Annotations map[string]string    `json:"annotations,omitempty"`
+	MediaType   string            `json:"mediaType"`
+	Digest      string            `json:"digest"`
+	Size        int               `json:"size"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 func main() {
@@ -32,17 +32,17 @@ func main() {
 
 	if helpFlag || len(args) == 0 {
 		fmt.Println("Trivy Zarf Plugin - Scan container images in Zarf packages")
-		fmt.Println("\nUsage: trivy plugin run zarf <zarf-package.tar>")
-		fmt.Println("\nExample: trivy plugin run zarf my-package.tar.zst")
+		fmt.Println("\nUsage: trivy plugin run zarf <zarf-package.tar> or <oci://registry/repository:tag>")
+		fmt.Println("\nExamples:")
+		fmt.Println("  trivy zarf my-package.tar.zst")
+		fmt.Println("  trivy zarf oci://ghcr.io/my-org/my-zarf-package:latest")
 		fmt.Println("\nThis plugin extracts and scans all container images in a Zarf package.")
 		os.Exit(0)
 	}
 
-	zarfPackage := args[0]
-	if !fileExists(zarfPackage) {
-		fmt.Printf("Error: Zarf package %s does not exist\n", zarfPackage)
-		os.Exit(1)
-	}
+	packageRef := args[0]
+	// Check if it's an OCI reference or a local file
+	isOCIRef := strings.HasPrefix(packageRef, "oci://")
 
 	// Create a temporary directory for extraction
 	tempDir, err := os.MkdirTemp("", "trivy-zarf-*")
@@ -52,11 +52,27 @@ func main() {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Extract the Zarf package
-	fmt.Println("Extracting Zarf package...")
-	if err := extractZarfPackage(zarfPackage, tempDir); err != nil {
-		fmt.Printf("Error extracting Zarf package: %v\n", err)
-		os.Exit(1)
+	// Handle package according to its type
+	if isOCIRef {
+		// Handle OCI reference
+		fmt.Println("Pulling Zarf package from OCI registry...")
+		if err := pullZarfPackage(packageRef, tempDir); err != nil {
+			fmt.Printf("Error pulling Zarf package: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		// Handle local file
+		if !fileExists(packageRef) {
+			fmt.Printf("Error: Zarf package %s does not exist\n", packageRef)
+			os.Exit(1)
+		}
+
+		// Extract the Zarf package
+		fmt.Println("Extracting Zarf package...")
+		if err := extractZarfPackage(packageRef, tempDir); err != nil {
+			fmt.Printf("Error extracting Zarf package: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Find and process the OCI layout
@@ -76,18 +92,40 @@ func main() {
 func extractZarfPackage(packagePath, targetDir string) error {
 	// Handle different package extensions (tar, tar.zst, etc.)
 	fmt.Printf("Extracting Zarf package: %s\n", packagePath)
-	
+
 	// Use the syntax that matches your Zarf version
 	cmd := exec.Command("zarf", "tools", "archiver", "decompress", packagePath, targetDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
-	
+
 	if err != nil {
 		return fmt.Errorf("zarf decompression failed: %w", err)
 	}
-	
+
 	fmt.Printf("Package extracted to: %s\n", targetDir)
+	return nil
+}
+
+func pullZarfPackage(ociRef, targetDir string) error {
+	// Ensure the reference starts with oci://
+	if !strings.HasPrefix(ociRef, "oci://") {
+		return fmt.Errorf("invalid OCI reference format: %s (must start with oci://)", ociRef)
+	}
+
+	fmt.Printf("Pulling Zarf package from OCI registry: %s\n", ociRef)
+
+	// Use zarf package pull command to pull the package to the targetDir
+	cmd := exec.Command("zarf", "package", "pull", ociRef, "-o", targetDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+
+	if err != nil {
+		return fmt.Errorf("zarf package pull failed: %w", err)
+	}
+
+	fmt.Printf("Package pulled to targetDir: %s\n", targetDir)
 	return nil
 }
 
@@ -116,7 +154,7 @@ func scanOCIImages(ociDir string) error {
 
 	// Scan each image listed in the index
 	fmt.Printf("Found %d images to scan\n", len(ociIndex.Manifests))
-	
+
 	for i, manifest := range ociIndex.Manifests {
 		imageName := getImageName(manifest)
 		mediaType := manifest.MediaType
@@ -124,33 +162,33 @@ func scanOCIImages(ociDir string) error {
 		fmt.Printf("Scanning image %d/%d: %s\n", i+1, len(ociIndex.Manifests), imageName)
 		fmt.Printf("Media type: %s\n", mediaType)
 		fmt.Printf("==================================================\n")
-		
+
 		// Create a temporary index.json with just this image
 		tempIndex := OCIIndex{
 			Manifests: []Manifest{manifest},
 		}
-		
+
 		tempIndexDir, err := os.MkdirTemp("", "trivy-image-*")
 		if err != nil {
 			return fmt.Errorf("creating temp directory: %w", err)
 		}
 		defer os.RemoveAll(tempIndexDir)
-		
+
 		// Copy the OCI layout structure
 		if err := copyOCILayout(ociDir, tempIndexDir); err != nil {
 			return fmt.Errorf("copying OCI layout: %w", err)
 		}
-		
+
 		// Write the temporary index.json
 		tempIndexData, err := json.Marshal(tempIndex)
 		if err != nil {
 			return fmt.Errorf("marshaling temp index: %w", err)
 		}
-		
+
 		if err := os.WriteFile(filepath.Join(tempIndexDir, "index.json"), tempIndexData, 0644); err != nil {
 			return fmt.Errorf("writing temp index.json: %w", err)
 		}
-		
+
 		// Run Trivy on this image with additional options
 		cmd := exec.Command("trivy", "image", "--input", tempIndexDir)
 		cmd.Stdout = os.Stdout
@@ -172,7 +210,7 @@ func copyOCILayout(srcDir, destDir string) error {
 			return fmt.Errorf("copying blobs: %w", err)
 		}
 	}
-	
+
 	// Copy oci-layout file
 	ociLayoutPath := filepath.Join(srcDir, "oci-layout")
 	if fileExists(ociLayoutPath) {
@@ -180,7 +218,7 @@ func copyOCILayout(srcDir, destDir string) error {
 			return fmt.Errorf("copying oci-layout: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -188,16 +226,16 @@ func copyDir(src, dst string) error {
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
 	}
-	
+
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
-	
+
 	for _, entry := range entries {
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
-		
+
 		if entry.IsDir() {
 			if err := copyDir(srcPath, dstPath); err != nil {
 				return err
@@ -208,7 +246,7 @@ func copyDir(src, dst string) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -218,17 +256,17 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	
+
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
-	
+
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
-	
+
 	_, err = io.Copy(out, in)
 	return err
 }
@@ -240,7 +278,7 @@ func getImageName(manifest Manifest) string {
 			return name
 		}
 	}
-	
+
 	// Fallback to using the digest
 	digest := manifest.Digest
 	if len(digest) > 20 {
@@ -249,7 +287,7 @@ func getImageName(manifest Manifest) string {
 			return parts[1][:16] // Use first 16 chars of the hash
 		}
 	}
-	
+
 	return digest
 }
 

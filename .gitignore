@@ -25,3 +25,6 @@
 
 # Go workspace file
 go.work
+
+# The plugin binary
+zarf
