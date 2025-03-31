@@ -9,6 +9,7 @@ Software, like nature, follows eternal cycles of creation and decay. Our approac
 - **Remember History**: Learn from past solutions; most problems have been solved before in different contexts.
 
 ## Build & Test Commands
+- Build: `go build`
 - Run locally: `go run main.go <zarf-package.tar>`
 - CI release: Uses GoReleaser to build and package for multiple platforms
 
