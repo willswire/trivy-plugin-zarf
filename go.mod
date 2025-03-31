@@ -1,3 +1,3 @@
-module github.com/aquasecurity/<repository_name>
+module github.com/willswire/trivy-plugin-zarf
 
 go 1.21

@@ -1,8 +1,8 @@
-project_name: <repository_name>
+project_name: trivy-plugin-zarf
 builds:
   -
     main: .
-    binary: <plugin_name>
+    binary: zarf
     ldflags:
       - -s -w
       - "-extldflags '-static'"
