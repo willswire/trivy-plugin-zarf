@@ -43,6 +43,35 @@ zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/do
 ./trivy-plugin-zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
 ```
 
+## Testing
+
+The project includes various tests to verify functionality:
+
+```bash
+# Run all tests
+go test ./...
+
+# Run specific test groups
+go test -v -run="TestFileAndDirExists|TestGetImageName"  # Unit tests
+go test -v -run="TestScanOCIImagesMock"                  # Mock tests
+go test -v -run="TestExtractAndScanIntegration"          # Integration tests
+
+# Run tests with coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+### Integration testing
+
+For integration tests, you'll need:
+1. Zarf and Trivy installed and in your PATH
+2. A Zarf package to test with (e.g., `zarf-package-dos-games-arm64-1.2.0.tar.zst`)
+
+You can download a test package with:
+```bash
+zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+```
+
 ## License
 
 Apache License, Version 2.0
