@@ -26,18 +26,35 @@ type Manifest struct {
 
 func main() {
 	var helpFlag bool
-	flag.BoolVar(&helpFlag, "h", false, "Display help information")
+	var outputDir string
+
+	flag.BoolVar(&helpFlag, "help", false, "Display help information")
+	flag.BoolVar(&helpFlag, "h", false, "Display help information (shorthand)")
+	flag.StringVar(&outputDir, "output", "", "Output directory for JSON scan results")
+	flag.StringVar(&outputDir, "o", "", "Output directory for JSON scan results (shorthand)")
 	flag.Parse()
 	args := flag.Args()
 
 	if helpFlag || len(args) == 0 {
 		fmt.Println("Trivy Zarf Plugin - Scan container images in Zarf packages")
 		fmt.Println("\nUsage: trivy plugin run zarf <zarf-package.tar> or <oci://registry/repository:tag>")
+		fmt.Println("\nOptions:")
+		fmt.Println("  -h, --help         Display help information")
+		fmt.Println("  -o, --output DIR   Save scan results as JSON files in specified directory")
 		fmt.Println("\nExamples:")
 		fmt.Println("  trivy zarf my-package.tar.zst")
 		fmt.Println("  trivy zarf oci://ghcr.io/my-org/my-zarf-package:latest")
+		fmt.Println("  trivy zarf --output ./results my-package.tar.zst")
 		fmt.Println("\nThis plugin extracts and scans all container images in a Zarf package.")
 		os.Exit(0)
+	}
+
+	// Create output directory if specified
+	if outputDir != "" {
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			fmt.Printf("Error creating output directory: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	packageRef := args[0]
@@ -50,29 +67,37 @@ func main() {
 		fmt.Printf("Error creating temp directory: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Printf("Error removing temp directory: %v\n", err)
+		}
+	}(tempDir)
 
 	// Handle package according to its type
 	if isOCIRef {
 		// Handle OCI reference
 		fmt.Println("Pulling Zarf package from OCI registry...")
-		if err := pullZarfPackage(packageRef, tempDir); err != nil {
+		packageFile, err := pullZarfPackage(packageRef, tempDir)
+		if err != nil {
 			fmt.Printf("Error pulling Zarf package: %v\n", err)
 			os.Exit(1)
 		}
-	} else {
-		// Handle local file
-		if !fileExists(packageRef) {
-			fmt.Printf("Error: Zarf package %s does not exist\n", packageRef)
-			os.Exit(1)
-		}
+		// Update packageRef so it's a .tar.zst file now
+		packageRef = packageFile
+	}
 
-		// Extract the Zarf package
-		fmt.Println("Extracting Zarf package...")
-		if err := extractZarfPackage(packageRef, tempDir); err != nil {
-			fmt.Printf("Error extracting Zarf package: %v\n", err)
-			os.Exit(1)
-		}
+	// Handle local file
+	if !fileExists(packageRef) {
+		fmt.Printf("Error: Zarf package %s does not exist\n", packageRef)
+		os.Exit(1)
+	}
+
+	// Extract the Zarf package
+	fmt.Println("Extracting Zarf package...")
+	if err := extractZarfPackage(packageRef, tempDir); err != nil {
+		fmt.Printf("Error extracting Zarf package: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Find and process the OCI layout
@@ -83,7 +108,7 @@ func main() {
 	}
 
 	// Scan each image in the OCI layout
-	if err := scanOCIImages(ociDir); err != nil {
+	if err := scanOCIImages(ociDir, outputDir); err != nil {
 		fmt.Printf("Error scanning images: %v\n", err)
 		os.Exit(1)
 	}
@@ -107,10 +132,10 @@ func extractZarfPackage(packagePath, targetDir string) error {
 	return nil
 }
 
-func pullZarfPackage(ociRef, targetDir string) error {
+func pullZarfPackage(ociRef, targetDir string) (string, error) {
 	// Ensure the reference starts with oci://
 	if !strings.HasPrefix(ociRef, "oci://") {
-		return fmt.Errorf("invalid OCI reference format: %s (must start with oci://)", ociRef)
+		return "", fmt.Errorf("invalid OCI reference format: %s (must start with oci://)", ociRef)
 	}
 
 	fmt.Printf("Pulling Zarf package from OCI registry: %s\n", ociRef)
@@ -122,14 +147,33 @@ func pullZarfPackage(ociRef, targetDir string) error {
 	err := cmd.Run()
 
 	if err != nil {
-		return fmt.Errorf("zarf package pull failed: %w", err)
+		return "", fmt.Errorf("zarf package pull failed: %w", err)
 	}
 
 	fmt.Printf("Package pulled to targetDir: %s\n", targetDir)
-	return nil
+
+	// Find the .tar.zst file in the targetDir
+	var packageFile string
+	entries, err := os.ReadDir(targetDir)
+	if err != nil {
+		return "", fmt.Errorf("error reading target directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".tar.zst") {
+			packageFile = filepath.Join(targetDir, entry.Name())
+			break
+		}
+	}
+
+	if packageFile == "" {
+		return "", fmt.Errorf("no .tar.zst file found in target directory after pull")
+	}
+
+	return packageFile, nil
 }
 
-func scanOCIImages(ociDir string) error {
+func scanOCIImages(ociDir, outputDir string) error {
 	indexPath := filepath.Join(ociDir, "index.json")
 	if !fileExists(indexPath) {
 		return fmt.Errorf("index.json not found in %s", ociDir)
@@ -172,7 +216,12 @@ func scanOCIImages(ociDir string) error {
 		if err != nil {
 			return fmt.Errorf("creating temp directory: %w", err)
 		}
-		defer os.RemoveAll(tempIndexDir)
+		defer func(path string) {
+			err := os.RemoveAll(path)
+			if err != nil {
+				fmt.Printf("Error removing temp directory: %v\n", err)
+			}
+		}(tempIndexDir)
 
 		// Copy the OCI layout structure
 		if err := copyOCILayout(ociDir, tempIndexDir); err != nil {
@@ -189,8 +238,22 @@ func scanOCIImages(ociDir string) error {
 			return fmt.Errorf("writing temp index.json: %w", err)
 		}
 
-		// Run Trivy on this image with additional options
-		cmd := exec.Command("trivy", "image", "--input", tempIndexDir)
+		// Run Trivy on this image
+		var cmd *exec.Cmd
+		if outputDir != "" {
+			// Create a sanitized filename for JSON output
+			safeImageName := sanitizeFilename(imageName)
+			jsonOutputPath := filepath.Join(outputDir, safeImageName+".json")
+
+			// Use JSON output format and save to file
+			cmd = exec.Command("trivy", "image", "--format", "json", "--output", jsonOutputPath, "--input", tempIndexDir)
+
+			fmt.Printf("Saving JSON results to: %s\n", jsonOutputPath)
+		} else {
+			// Standard console output
+			cmd = exec.Command("trivy", "image", "--input", tempIndexDir)
+		}
+
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -255,7 +318,12 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func(in *os.File) {
+		err := in.Close()
+		if err != nil {
+			fmt.Printf("Error closing file: %v\n", err)
+		}
+	}(in)
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
@@ -265,7 +333,12 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func(out *os.File) {
+		err := out.Close()
+		if err != nil {
+			fmt.Printf("Error closing file: %v\n", err)
+		}
+	}(out)
 
 	_, err = io.Copy(out, in)
 	return err
@@ -274,7 +347,13 @@ func copyFile(src, dst string) error {
 func getImageName(manifest Manifest) string {
 	// Try to get a readable name from annotations
 	if manifest.Annotations != nil {
+		// First try org.opencontainers.image.ref.name
 		if name, ok := manifest.Annotations["org.opencontainers.image.ref.name"]; ok {
+			return name
+		}
+
+		// Then try org.opencontainers.image.base.name
+		if name, ok := manifest.Annotations["org.opencontainers.image.base.name"]; ok {
 			return name
 		}
 	}
@@ -299,4 +378,48 @@ func fileExists(path string) bool {
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// sanitizeFilename converts an image name to a safe filename
+func sanitizeFilename(imageName string) string {
+	// Replace common characters that are problematic in filenames
+	replacer := strings.NewReplacer(
+		"/", "_",
+		":", "_",
+		" ", "_",
+		".", "_",
+		",", "_",
+		"@", "_",
+		"&", "_",
+		"=", "_",
+		"?", "_",
+		"#", "_",
+		"%", "_",
+		"*", "_",
+		"\"", "_",
+		"'", "_",
+		"`", "_",
+		"<", "_",
+		">", "_",
+		"|", "_",
+		"\\", "_",
+	)
+
+	// Perform the replacements
+	sanitized := replacer.Replace(imageName)
+
+	// Ensure we don't have multiple consecutive underscores
+	for strings.Contains(sanitized, "__") {
+		sanitized = strings.ReplaceAll(sanitized, "__", "_")
+	}
+
+	// Trim underscores from start and end
+	sanitized = strings.Trim(sanitized, "_")
+
+	// If we somehow end up with an empty string, use a default name
+	if sanitized == "" {
+		sanitized = "unknown_image"
+	}
+
+	return sanitized
 }
