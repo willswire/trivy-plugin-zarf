@@ -64,4 +64,4 @@ trivy plugin install .
 
 ## License
 
-MIT License
+Apache License, Version 2.0
