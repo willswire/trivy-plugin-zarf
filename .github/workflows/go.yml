@@ -30,9 +30,6 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Unit Test
-      run: go test -v ./...
-
-    - name: Integration Test
+    - name: Test
       run: go test -tags=integration -v ./...
 
