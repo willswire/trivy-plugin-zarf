@@ -18,7 +18,7 @@ The plugin handles both `application/vnd.oci.image.manifest.v1+json` and `applic
 - [Trivy](https://github.com/aquasecurity/trivy) (for vulnerability scanning)
 - [Zarf](https://github.com/defenseunicorns/zarf) (for package decompression)
 
-## Installation
+## Try it out!
 
 ```bash
 # Install the plugin
@@ -26,40 +26,21 @@ trivy plugin install github.com/willswire/trivy-plugin-zarf
 
 # Verify installation
 trivy plugin list
+
+# Pull a package and scan it
+zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+trivy zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
 ```
 
-## Usage
+## Development
 
 ```bash
 # Install the plugin locally for development
-go build -o zarf
-trivy plugin install .
-
-# Scan a Zarf package
-trivy plugin run zarf path/to/your-zarf-package.tar
-
-# Or run the binary directly for testing
-./zarf path/to/your-zarf-package.tar
-```
-
-The plugin will:
-- Extract the Zarf package
-- Find all container images
-- Scan each image for vulnerabilities (regardless of manifest type)
-- Report results for each image
-
-## Building from source
-
-```bash
-# Clone the repository
-git clone https://github.com/willswire/trivy-plugin-zarf.git
-cd trivy-plugin-zarf
-
-# Build
 go build
 
-# Install the plugin locally
-trivy plugin install .
+# Run the binary directly for testing
+zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+./trivy-plugin-zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
 ```
 
 ## License
