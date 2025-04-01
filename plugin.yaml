@@ -1,6 +1,7 @@
 name: zarf
 repository: github.com/willswire/trivy-plugin-zarf
 version: 0.1.0
+maintainer: willswire
 summary: Scan Zarf packages for vulnerabilities
 usage: zarf <zarf-package.tar> or <oci://registry/repository:tag>
 description: A Trivy plugin for scanning Zarf packages containing OCI images from local files or OCI registries
