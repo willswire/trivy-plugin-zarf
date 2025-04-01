@@ -26,5 +26,8 @@
 # Go workspace file
 go.work
 
-*.tar.zst
+# The plugin binary
+trivy-plugin-zarf
+zarf
+
 testdata/

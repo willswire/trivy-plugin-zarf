@@ -1,17 +1,17 @@
 # Trivy Plugin Zarf
 
-A Trivy plugin for scanning container images in Zarf packages.
+A Trivy plugin for scanning container images in Zarf packages from local files or OCI registries.
 
 ## Overview
 
 This plugin allows you to scan all container images within a Zarf package for vulnerabilities using Trivy, without requiring any manual extraction or transformation steps. It automatically:
 
-1. Extracts the Zarf package
+1. Extracts the Zarf package (from local file or OCI registry)
 2. Parses the OCI image structure
 3. Scans each image in the package sequentially
 4. Reports vulnerabilities for each image
 
-The plugin handles both `application/vnd.oci.image.manifest.v1+json` and `application/vnd.docker.distribution.manifest.v2+json` format images.
+The plugin handles both `application/vnd.oci.image.manifest.v1+json` and `application/vnd.docker.distribution.manifest.v2+json` format images, and supports both local Zarf packages and OCI-stored packages via `oci://` references.
 
 ## Prerequisites
 
@@ -41,6 +41,9 @@ go build
 # Run the binary directly for testing
 zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 ./trivy-plugin-zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
+
+# Or just reference the oci directly
+./trivy-plugin-zarf oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 ```
 
 ## Testing
