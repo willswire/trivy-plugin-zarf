@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 func TestFileAndDirExists(t *testing.T) {
@@ -39,9 +41,9 @@ func TestFileAndDirExists(t *testing.T) {
 	}
 }
 
-func TestGetImageName(t *testing.T) {
+func TestGetImageNameFromDescriptor(t *testing.T) {
 	// Test with org.opencontainers.image.ref.name annotation
-	manifest := Manifest{
+	descriptor := v1.Descriptor{
 		MediaType: "application/vnd.oci.image.manifest.v1+json",
 		Digest:    "sha256:123456789abcdef1234567",
 		Size:      1024,
@@ -50,13 +52,13 @@ func TestGetImageName(t *testing.T) {
 		},
 	}
 
-	name := getImageName(manifest)
+	name := getImageNameFromDescriptor(descriptor)
 	if name != "test-image:latest" {
-		t.Errorf("getImageName with ref.name annotation returned %s, expected test-image:latest", name)
+		t.Errorf("getImageNameFromDescriptor with ref.name annotation returned %s, expected test-image:latest", name)
 	}
 
 	// Test with org.opencontainers.image.base.name annotation (no ref.name)
-	manifest = Manifest{
+	descriptor = v1.Descriptor{
 		MediaType: "application/vnd.oci.image.manifest.v1+json",
 		Digest:    "sha256:123456789abcdef1234567",
 		Size:      1024,
@@ -65,13 +67,13 @@ func TestGetImageName(t *testing.T) {
 		},
 	}
 
-	name = getImageName(manifest)
+	name = getImageNameFromDescriptor(descriptor)
 	if name != "base-image:latest" {
-		t.Errorf("getImageName with base.name annotation returned %s, expected base-image:latest", name)
+		t.Errorf("getImageNameFromDescriptor with base.name annotation returned %s, expected base-image:latest", name)
 	}
 
 	// Test with both annotations (ref.name should take precedence)
-	manifest = Manifest{
+	descriptor = v1.Descriptor{
 		MediaType: "application/vnd.oci.image.manifest.v1+json",
 		Digest:    "sha256:123456789abcdef1234567",
 		Size:      1024,
@@ -81,34 +83,34 @@ func TestGetImageName(t *testing.T) {
 		},
 	}
 
-	name = getImageName(manifest)
+	name = getImageNameFromDescriptor(descriptor)
 	if name != "ref-name-image:latest" {
-		t.Errorf("getImageName with both annotations returned %s, expected ref-name-image:latest", name)
+		t.Errorf("getImageNameFromDescriptor with both annotations returned %s, expected ref-name-image:latest", name)
 	}
 
 	// Test without annotations but with long enough digest
-	manifest = Manifest{
+	descriptor = v1.Descriptor{
 		MediaType: "application/vnd.oci.image.manifest.v1+json",
 		Digest:    "sha256:123456789abcdef1234567",
 		Size:      1024,
 	}
 
-	name = getImageName(manifest)
+	name = getImageNameFromDescriptor(descriptor)
 	expectedPrefix := "123456789abcdef"
 	if len(name) < len(expectedPrefix) || name[:len(expectedPrefix)] != expectedPrefix {
-		t.Errorf("getImageName without annotations returned %s, expected to start with %s", name, expectedPrefix)
+		t.Errorf("getImageNameFromDescriptor without annotations returned %s, expected to start with %s", name, expectedPrefix)
 	}
 
 	// Test with short digest
-	manifest = Manifest{
+	descriptor = v1.Descriptor{
 		MediaType: "application/vnd.oci.image.manifest.v1+json",
 		Digest:    "short-digest",
 		Size:      1024,
 	}
 
-	name = getImageName(manifest)
+	name = getImageNameFromDescriptor(descriptor)
 	if name != "short-digest" {
-		t.Errorf("getImageName with short digest returned %s, expected short-digest", name)
+		t.Errorf("getImageNameFromDescriptor with short digest returned %s, expected short-digest", name)
 	}
 }
 

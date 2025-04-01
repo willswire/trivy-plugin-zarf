@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/opencontainers/image-spec/specs-go"
+	specv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // TestScanOCIImagesMock tests the scanOCIImages function with a mocked OCI layout
@@ -36,8 +39,11 @@ func TestScanOCIImagesMock(t *testing.T) {
 	}
 
 	// Create a mock index.json with two test images
-	mockIndex := OCIIndex{
-		Manifests: []Manifest{
+	mockIndex := specv1.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2,
+		},
+		Manifests: []specv1.Descriptor{
 			{
 				MediaType: "application/vnd.oci.image.manifest.v1+json",
 				Digest:    "sha256:1111111111111111",
@@ -70,8 +76,8 @@ func TestScanOCIImagesMock(t *testing.T) {
 
 	// Create mock blob files - we don't need actual content for testing
 	// but we need the files to exist for the directory copy operations
-	for _, manifest := range mockIndex.Manifests {
-		digest := manifest.Digest
+	for _, descriptor := range mockIndex.Manifests {
+		digest := descriptor.Digest.String()
 		parts := filepath.SplitList(digest)
 		if len(parts) > 1 {
 			mockBlobPath := filepath.Join(blobsDir, parts[1])
@@ -90,13 +96,13 @@ func TestScanOCIImagesMock(t *testing.T) {
 			return err
 		}
 
-		var ociIndex OCIIndex
+		var ociIndex specv1.Index
 		if err := json.Unmarshal(indexData, &ociIndex); err != nil {
 			return err
 		}
 
-		for _, manifest := range ociIndex.Manifests {
-			imageName := getImageName(manifest)
+		for _, descriptor := range ociIndex.Manifests {
+			imageName := getImageNameFromDescriptor(descriptor)
 			t.Logf("Would scan image: %s", imageName)
 			mockScanCount++
 		}

@@ -9,20 +9,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/opencontainers/image-spec/specs-go"
+	specv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// OCIIndex represents the structure of an OCI index.json file
-type OCIIndex struct {
-	Manifests []Manifest `json:"manifests"`
-}
-
-// Manifest represents an entry in the manifests array
-type Manifest struct {
-	MediaType   string            `json:"mediaType"`
-	Digest      string            `json:"digest"`
-	Size        int               `json:"size"`
-	Annotations map[string]string `json:"annotations,omitempty"`
-}
+// Use the standard OCI types from opencontainers/image-spec
 
 func main() {
 	var helpFlag bool
@@ -143,6 +135,7 @@ func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool) (st
 
 	fmt.Printf("Pulling Zarf package from OCI registry: %s\n", ociRef)
 
+	// Create command to pull the package using zarf CLI but with improved handling
 	cmd := exec.Command("zarf", "package", "pull", ociRef, "-o", targetDir)
 	if skipSignatureValidation {
 		cmd.Args = append(cmd.Args, "--skip-signature-validation")
@@ -192,7 +185,8 @@ func scanOCIImages(ociDir, outputDir string) error {
 		return fmt.Errorf("reading index.json: %w", err)
 	}
 
-	var ociIndex OCIIndex
+	// Parse into standard OCI index from image-spec
+	var ociIndex specv1.Index
 	if err := json.Unmarshal(indexData, &ociIndex); err != nil {
 		return fmt.Errorf("parsing index.json: %w", err)
 	}
@@ -206,17 +200,20 @@ func scanOCIImages(ociDir, outputDir string) error {
 	// Scan each image listed in the index
 	fmt.Printf("Found %d images to scan\n", len(ociIndex.Manifests))
 
-	for i, manifest := range ociIndex.Manifests {
-		imageName := getImageName(manifest)
-		mediaType := manifest.MediaType
+	for i, descriptor := range ociIndex.Manifests {
+		imageName := getImageNameFromDescriptor(descriptor)
+		mediaType := descriptor.MediaType
 		fmt.Printf("\n==================================================\n")
 		fmt.Printf("Scanning image %d/%d: %s\n", i+1, len(ociIndex.Manifests), imageName)
 		fmt.Printf("Media type: %s\n", mediaType)
 		fmt.Printf("==================================================\n")
 
 		// Create a temporary index.json with just this image
-		tempIndex := OCIIndex{
-			Manifests: []Manifest{manifest},
+		tempIndex := specv1.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2,
+			},
+			Manifests: []specv1.Descriptor{descriptor},
 		}
 
 		tempIndexDir, err := os.MkdirTemp("", "trivy-image-*")
@@ -272,6 +269,7 @@ func scanOCIImages(ociDir, outputDir string) error {
 	return nil
 }
 
+// Added back the OCI layout copying functions needed
 func copyOCILayout(srcDir, destDir string) error {
 	// Copy blobs directory
 	blobsDir := filepath.Join(srcDir, "blobs")
@@ -351,22 +349,23 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func getImageName(manifest Manifest) string {
+
+func getImageNameFromDescriptor(descriptor specv1.Descriptor) string {
 	// Try to get a readable name from annotations
-	if manifest.Annotations != nil {
+	if descriptor.Annotations != nil {
 		// First try org.opencontainers.image.ref.name
-		if name, ok := manifest.Annotations["org.opencontainers.image.ref.name"]; ok {
+		if name, ok := descriptor.Annotations["org.opencontainers.image.ref.name"]; ok {
 			return name
 		}
 
 		// Then try org.opencontainers.image.base.name
-		if name, ok := manifest.Annotations["org.opencontainers.image.base.name"]; ok {
+		if name, ok := descriptor.Annotations["org.opencontainers.image.base.name"]; ok {
 			return name
 		}
 	}
 
 	// Fallback to using the digest
-	digest := manifest.Digest
+	digest := descriptor.Digest.String()
 	if len(digest) > 20 {
 		parts := strings.Split(digest, ":")
 		if len(parts) > 1 {
