@@ -18,11 +18,13 @@ import (
 
 func main() {
 	var helpFlag bool
+	var dbRepository string
 	var outputDir string
 	var skipSignatureValidation bool
 
 	flag.BoolVar(&helpFlag, "help", false, "Display help information")
 	flag.BoolVar(&helpFlag, "h", false, "Display help information (shorthand)")
+	flag.StringVar(&dbRepository, "db-repository", "ghcr.io/aquasecurity/trivy-db", "Trivy DB repository to use (default: ghcr.io/aquasecurity/trivy-db)")
 	flag.StringVar(&outputDir, "output", "", "Output directory for JSON scan results")
 	flag.StringVar(&outputDir, "o", "", "Output directory for JSON scan results (shorthand)")
 	flag.BoolVar(&skipSignatureValidation, "skip-signature-validation", false, "Skip signature validation for OCI images")
@@ -33,9 +35,10 @@ func main() {
 		fmt.Println("Trivy Zarf Plugin - Scan container images in Zarf packages")
 		fmt.Println("\nUsage: trivy plugin run zarf [flags] <zarf-package.tar> or <oci://registry/repository:tag>")
 		fmt.Println("\nOptions:")
-		fmt.Println("  -h, --help                   Display help information")
-		fmt.Println("  -o, --output DIR             Save scan results as JSON files in specified directory")
-		fmt.Println("  --skip-signature-validation  Skip signature validation for OCI images")
+		fmt.Println("  -h, --help                     Display help information")
+		fmt.Println("  --db-repository DB_REPOSITORY  Trivy DB repository to use (default: ghcr.io/aquasecurity/trivy-db)")
+		fmt.Println("  -o, --output DIR               Save scan results as JSON files in specified directory")
+		fmt.Println("  --skip-signature-validation    Skip signature validation for OCI images")
 		fmt.Println("\nExamples:")
 		fmt.Println("  trivy zarf my-package.tar.zst")
 		fmt.Println("  trivy zarf --skip-signature-validation oci://ghcr.io/my-org/my-zarf-package:latest")
@@ -103,7 +106,7 @@ func main() {
 	}
 
 	// Scan each image in the OCI layout
-	if errors := scanOCIImages(ociDir, outputDir); len(errors) != 0 {
+	if errors := scanOCIImages(ociDir, outputDir, dbRepository); len(errors) != 0 {
 		for _, err := range errors {
 			fmt.Printf("Error scanning images: %v\n", err)
 		}
@@ -175,7 +178,7 @@ func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool) (st
 	return packageFile, nil
 }
 
-func scanOCIImages(ociDir, outputDir string) []error {
+func scanOCIImages(ociDir, outputDir string, dbRepository string) []error {
 	var errors []error
 	indexPath := filepath.Join(ociDir, "index.json")
 	if !fileExists(indexPath) {
@@ -207,7 +210,7 @@ func scanOCIImages(ociDir, outputDir string) []error {
 	fmt.Printf("Found %d images to scan\n", len(ociIndex.Manifests))
 
 	for _, descriptor := range ociIndex.Manifests {
-		err := scanOCIImage(descriptor, ociDir, outputDir)
+		err := scanOCIImage(descriptor, ociDir, outputDir, dbRepository)
 		if err != nil {
 			// append the errors array
 			errors = append(errors, err)
@@ -217,7 +220,7 @@ func scanOCIImages(ociDir, outputDir string) []error {
 	return errors
 }
 
-func scanOCIImage(descriptor specv1.Descriptor, ociDir string, outputDir string) error {
+func scanOCIImage(descriptor specv1.Descriptor, ociDir string, outputDir string, dbRepository string) error {
 	imageName := getImageNameFromDescriptor(descriptor)
 	mediaType := descriptor.MediaType
 	fmt.Printf("\n==================================================\n")
@@ -272,7 +275,7 @@ func scanOCIImage(descriptor specv1.Descriptor, ociDir string, outputDir string)
 		fmt.Printf("Saving JSON results to: %s\n", jsonOutputPath)
 	} else {
 		// Standard console output
-		cmd = exec.Command("trivy", "image", "--input", tempIndexDir)
+		cmd = exec.Command("trivy", "image", "--input", tempIndexDir, "--db-repository", dbRepository)
 	}
 
 	cmd.Stdout = os.Stdout
