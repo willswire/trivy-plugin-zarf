@@ -18,11 +18,13 @@ import (
 
 func main() {
 	var helpFlag bool
+	var dbRepository string
 	var outputDir string
 	var skipSignatureValidation bool
 
 	flag.BoolVar(&helpFlag, "help", false, "Display help information")
 	flag.BoolVar(&helpFlag, "h", false, "Display help information (shorthand)")
+	flag.StringVar(&dbRepository, "db-repository", "ghcr.io/aquasecurity/trivy-db", "Trivy DB repository to use (default: ghcr.io/aquasecurity/trivy-db)")
 	flag.StringVar(&outputDir, "output", "", "Output directory for JSON scan results")
 	flag.StringVar(&outputDir, "o", "", "Output directory for JSON scan results (shorthand)")
 	flag.BoolVar(&skipSignatureValidation, "skip-signature-validation", false, "Skip signature validation for OCI images")
@@ -33,9 +35,10 @@ func main() {
 		fmt.Println("Trivy Zarf Plugin - Scan container images in Zarf packages")
 		fmt.Println("\nUsage: trivy plugin run zarf [flags] <zarf-package.tar> or <oci://registry/repository:tag>")
 		fmt.Println("\nOptions:")
-		fmt.Println("  -h, --help                   Display help information")
-		fmt.Println("  -o, --output DIR             Save scan results as JSON files in specified directory")
-		fmt.Println("  --skip-signature-validation  Skip signature validation for OCI images")
+		fmt.Println("  -h, --help                     Display help information")
+		fmt.Println("  --db-repository DB_REPOSITORY  Trivy DB repository to use (default: ghcr.io/aquasecurity/trivy-db)")
+		fmt.Println("  -o, --output DIR               Save scan results as JSON files in specified directory")
+		fmt.Println("  --skip-signature-validation    Skip signature validation for OCI images")
 		fmt.Println("\nExamples:")
 		fmt.Println("  trivy zarf my-package.tar.zst")
 		fmt.Println("  trivy zarf --skip-signature-validation oci://ghcr.io/my-org/my-zarf-package:latest")
@@ -103,8 +106,10 @@ func main() {
 	}
 
 	// Scan each image in the OCI layout
-	if err := scanOCIImages(ociDir, outputDir); err != nil {
-		fmt.Printf("Error scanning images: %v\n", err)
+	if errors := scanOCIImages(ociDir, outputDir, dbRepository); len(errors) != 0 {
+		for _, err := range errors {
+			fmt.Printf("Error scanning images: %v\n", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -173,99 +178,112 @@ func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool) (st
 	return packageFile, nil
 }
 
-func scanOCIImages(ociDir, outputDir string) error {
+func scanOCIImages(ociDir, outputDir string, dbRepository string) []error {
+	var errors []error
 	indexPath := filepath.Join(ociDir, "index.json")
 	if !fileExists(indexPath) {
-		return fmt.Errorf("index.json not found in %s", ociDir)
+		errors = append(errors, fmt.Errorf("index.json not found in %s", ociDir))
+		return errors
 	}
 
 	// Read and parse the index.json file
 	indexData, err := os.ReadFile(indexPath)
 	if err != nil {
-		return fmt.Errorf("reading index.json: %w", err)
+		errors = append(errors, fmt.Errorf("reading index.json: %w", err))
+		return errors
 	}
 
 	// Parse into standard OCI index from image-spec
 	var ociIndex specv1.Index
 	if err := json.Unmarshal(indexData, &ociIndex); err != nil {
-		return fmt.Errorf("parsing index.json: %w", err)
+		errors = append(errors, fmt.Errorf("parsing index.json: %w", err))
+		return errors
 	}
 
 	// No images to scan
 	if len(ociIndex.Manifests) == 0 {
 		fmt.Println("No images found in the Zarf package")
-		return nil
+		return errors
 	}
 
 	// Scan each image listed in the index
 	fmt.Printf("Found %d images to scan\n", len(ociIndex.Manifests))
 
-	for i, descriptor := range ociIndex.Manifests {
-		imageName := getImageNameFromDescriptor(descriptor)
-		mediaType := descriptor.MediaType
-		fmt.Printf("\n==================================================\n")
-		fmt.Printf("Scanning image %d/%d: %s\n", i+1, len(ociIndex.Manifests), imageName)
-		fmt.Printf("Media type: %s\n", mediaType)
-		fmt.Printf("==================================================\n")
-
-		// Create a temporary index.json with just this image
-		tempIndex := specv1.Index{
-			Versioned: specs.Versioned{
-				SchemaVersion: 2,
-			},
-			Manifests: []specv1.Descriptor{descriptor},
-		}
-
-		tempIndexDir, err := os.MkdirTemp("", "trivy-image-*")
+	for _, descriptor := range ociIndex.Manifests {
+		err := scanOCIImage(descriptor, ociDir, outputDir, dbRepository)
 		if err != nil {
-			return fmt.Errorf("creating temp directory: %w", err)
-		}
-		defer func(path string) {
-			err := os.RemoveAll(path)
-			if err != nil {
-				fmt.Printf("Error removing temp directory: %v\n", err)
-			}
-		}(tempIndexDir)
-
-		// Copy the OCI layout structure
-		if err := copyOCILayout(ociDir, tempIndexDir); err != nil {
-			return fmt.Errorf("copying OCI layout: %w", err)
-		}
-
-		// Write the temporary index.json
-		tempIndexData, err := json.Marshal(tempIndex)
-		if err != nil {
-			return fmt.Errorf("marshaling temp index: %w", err)
-		}
-
-		if err := os.WriteFile(filepath.Join(tempIndexDir, "index.json"), tempIndexData, 0644); err != nil {
-			return fmt.Errorf("writing temp index.json: %w", err)
-		}
-
-		// Run Trivy on this image
-		var cmd *exec.Cmd
-		if outputDir != "" {
-			// Create a sanitized filename for JSON output
-			safeImageName := sanitizeFilename(imageName)
-			jsonOutputPath := filepath.Join(outputDir, safeImageName+".json")
-
-			// Use JSON output format and save to file
-			cmd = exec.Command("trivy", "image", "--format", "json", "--output", jsonOutputPath, "--input", tempIndexDir)
-
-			fmt.Printf("Saving JSON results to: %s\n", jsonOutputPath)
-		} else {
-			// Standard console output
-			cmd = exec.Command("trivy", "image", "--input", tempIndexDir)
-		}
-
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("Warning: Trivy scan failed for image %s: %v\n", imageName, err)
-			// Continue to the next image instead of failing completely
+			// append the errors array
+			errors = append(errors, err)
 		}
 	}
 
+	return errors
+}
+
+func scanOCIImage(descriptor specv1.Descriptor, ociDir string, outputDir string, dbRepository string) error {
+	imageName := getImageNameFromDescriptor(descriptor)
+	mediaType := descriptor.MediaType
+	fmt.Printf("\n==================================================\n")
+	fmt.Printf("Scanning image: %s\n", imageName)
+	fmt.Printf("Media type: %s\n", mediaType)
+	fmt.Printf("==================================================\n")
+
+	// Create a temporary index.json with just this image
+	tempIndex := specv1.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2,
+		},
+		Manifests: []specv1.Descriptor{descriptor},
+	}
+
+	tempIndexDir, err := os.MkdirTemp("", "trivy-image-*")
+	if err != nil {
+		return fmt.Errorf("creating temp directory: %w", err)
+	}
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Printf("Error removing temp directory: %v\n", err)
+		}
+	}(tempIndexDir)
+
+	// Copy the OCI layout structure
+	if err := copyOCILayout(ociDir, tempIndexDir); err != nil {
+		return fmt.Errorf("copying OCI layout: %w", err)
+	}
+
+	// Write the temporary index.json
+	tempIndexData, err := json.Marshal(tempIndex)
+	if err != nil {
+		return fmt.Errorf("marshaling temp index: %w", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(tempIndexDir, "index.json"), tempIndexData, 0644); err != nil {
+		return fmt.Errorf("writing temp index.json: %w", err)
+	}
+
+	// Run Trivy on this image
+	var cmd *exec.Cmd
+	if outputDir != "" {
+		// Create a sanitized filename for JSON output
+		safeImageName := sanitizeFilename(imageName)
+		jsonOutputPath := filepath.Join(outputDir, safeImageName+".json")
+
+		// Use JSON output format and save to file
+		cmd = exec.Command("trivy", "image", "--format", "json", "--output", jsonOutputPath, "--input", tempIndexDir)
+
+		fmt.Printf("Saving JSON results to: %s\n", jsonOutputPath)
+	} else {
+		// Standard console output
+		cmd = exec.Command("trivy", "image", "--input", tempIndexDir, "--db-repository", dbRepository)
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		// Return the error
+		return fmt.Errorf("Warning: Trivy scan failed for image %s: %v\n", imageName, err)
+	}
 	return nil
 }
 
@@ -348,7 +366,6 @@ func copyFile(src, dst string) error {
 	_, err = io.Copy(out, in)
 	return err
 }
-
 
 func getImageNameFromDescriptor(descriptor specv1.Descriptor) string {
 	// Try to get a readable name from annotations
