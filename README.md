@@ -43,6 +43,7 @@ trivy zarf [flags] <zarf-package.tar> or <oci://registry/repository:tag>
 | `--help` | `-h` | Display help information |
 | `--output DIR` | `-o DIR` | Save scan results as JSON files in specified directory |
 | `--skip-signature-validation` | | Skip signature validation when pulling from OCI registry |
+| `--arch ARCHITECTURE` | `-a ARCHITECTURE` | Architecture to pull for OCI images (e.g., `amd64`, `arm64`) |
 
 ### Basic Examples
 
@@ -62,6 +63,12 @@ Skip signature validation when pulling from OCI registry:
 
 ```bash
 trivy zarf --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+```
+
+Pull and scan a specific architecture from an OCI registry:
+
+```bash
+trivy zarf --arch amd64 oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 ```
 
 ### Output Options
@@ -88,6 +95,9 @@ trivy zarf --output ./scan-results zarf-package-dos-games-arm64-1.2.0.tar.zst
 
 # Or scan directly from OCI in one step
 trivy zarf --skip-signature-validation --output ./scan-results oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+
+# Pull and scan a specific architecture from OCI in one step
+trivy zarf --arch arm64 --output ./scan-results oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 ```
 
 ## Development
@@ -116,6 +126,9 @@ Run the plugin binary directly:
 
 # Test with output flags
 ./trivy-plugin-zarf --output ./results zarf-package-dos-games-arm64-1.2.0.tar.zst
+
+# Test with architecture specification
+./trivy-plugin-zarf --arch arm64 oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 ```
 
 ### Linking for Development
