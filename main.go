@@ -21,6 +21,7 @@ func main() {
 	var dbRepository string
 	var outputDir string
 	var skipSignatureValidation bool
+	var architecture string
 
 	flag.BoolVar(&helpFlag, "help", false, "Display help information")
 	flag.BoolVar(&helpFlag, "h", false, "Display help information (shorthand)")
@@ -28,6 +29,8 @@ func main() {
 	flag.StringVar(&outputDir, "output", "", "Output directory for JSON scan results")
 	flag.StringVar(&outputDir, "o", "", "Output directory for JSON scan results (shorthand)")
 	flag.BoolVar(&skipSignatureValidation, "skip-signature-validation", false, "Skip signature validation for OCI images")
+	flag.StringVar(&architecture, "arch", "", "Architecture to pull for OCI images")
+	flag.StringVar(&architecture, "a", "", "Architecture to pull for OCI images (shorthand)")
 	flag.Parse()
 	args := flag.Args()
 
@@ -39,10 +42,12 @@ func main() {
 		fmt.Println("  --db-repository DB_REPOSITORY  Trivy DB repository to use (default: ghcr.io/aquasecurity/trivy-db)")
 		fmt.Println("  -o, --output DIR               Save scan results as JSON files in specified directory")
 		fmt.Println("  --skip-signature-validation    Skip signature validation for OCI images")
+		fmt.Println("  -a, --arch ARCHITECTURE        Architecture to pull for OCI images (e.g., amd64, arm64)")
 		fmt.Println("\nExamples:")
 		fmt.Println("  trivy zarf my-package.tar.zst")
 		fmt.Println("  trivy zarf --skip-signature-validation oci://ghcr.io/my-org/my-zarf-package:latest")
 		fmt.Println("  trivy zarf --output ./results my-package.tar.zst")
+		fmt.Println("  trivy zarf --arch arm64 oci://ghcr.io/my-org/my-zarf-package:latest")
 		fmt.Println("\nThis plugin extracts and scans all container images in a Zarf package.")
 		os.Exit(0)
 	}
@@ -76,7 +81,7 @@ func main() {
 	if isOCIRef {
 		// Handle OCI reference
 		fmt.Println("Pulling Zarf package from OCI registry...")
-		packageFile, err := pullZarfPackage(packageRef, tempDir, skipSignatureValidation)
+		packageFile, err := pullZarfPackage(packageRef, tempDir, skipSignatureValidation, architecture)
 		if err != nil {
 			fmt.Printf("Error pulling Zarf package: %v\n", err)
 			os.Exit(1)
@@ -132,7 +137,7 @@ func extractZarfPackage(packagePath, targetDir string) error {
 	return nil
 }
 
-func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool) (string, error) {
+func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool, architecture string) (string, error) {
 	// Ensure the reference starts with oci://
 	if !strings.HasPrefix(ociRef, "oci://") {
 		return "", fmt.Errorf("invalid OCI reference format: %s (must start with oci://)", ociRef)
@@ -144,6 +149,11 @@ func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool) (st
 	cmd := exec.Command("zarf", "package", "pull", ociRef, "-o", targetDir)
 	if skipSignatureValidation {
 		cmd.Args = append(cmd.Args, "--skip-signature-validation")
+	}
+
+	// Add architecture flag if specified
+	if architecture != "" {
+		cmd.Args = append(cmd.Args, "-a", architecture)
 	}
 
 	// Use zarf package pull command to pull the package to the targetDir

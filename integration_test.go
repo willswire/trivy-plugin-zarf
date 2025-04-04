@@ -43,7 +43,7 @@ func TestFullIntegration(t *testing.T) {
 	defer os.RemoveAll(downloadDir)
 
 	// Pull the package from OCI registry
-	packageFile, err := pullZarfPackage(ociRef, downloadDir, true)
+	packageFile, err := pullZarfPackage(ociRef, downloadDir, true, "")
 	if err != nil {
 		t.Fatalf("Failed to pull package from OCI registry: %v", err)
 	}
@@ -226,5 +226,54 @@ func TestJSONOutputIntegration(t *testing.T) {
 		t.Errorf("No .json files found in the output directory")
 	} else {
 		t.Logf("Found %d JSON files in the output directory", jsonCount)
+	}
+}
+
+func TestArchitectureIntegration(t *testing.T) {
+	if _, err := exec.LookPath("zarf"); err != nil {
+		t.Fatalf("Zarf not found in PATH, required for this test")
+	}
+
+	if _, err := exec.LookPath("trivy"); err != nil {
+		t.Fatalf("Trivy not found in PATH, required for this test")
+	}
+
+	ociRef := "oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0"
+
+	binaryPath := "./trivy-plugin-zarf"
+	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
+		cmd := exec.Command("go", "build")
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("Failed to build binary: %v, stderr: %s", err, stderr.String())
+		}
+	}
+
+	cmd := exec.Command(binaryPath, "--skip-signature-validation", "--arch", "amd64", ociRef)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	t.Logf("Running: %s --arch amd64 %s", binaryPath, ociRef)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to run binary with arch flag: %v\nStdout: %s\nStderr: %s",
+			err, stdout.String(), stderr.String())
+	}
+
+	// Check the output
+	output := stdout.String()
+	t.Logf("Command output:\n%s", output)
+
+	// Verify the output contains expected content
+	expectedOutputs := []string{
+		"Package extracted to",
+		"Found 1 images to scan",
+	}
+
+	for _, expected := range expectedOutputs {
+		if !bytes.Contains(stdout.Bytes(), []byte(expected)) {
+			t.Errorf("Expected output to contain '%s', but it didn't", expected)
+		}
 	}
 }
