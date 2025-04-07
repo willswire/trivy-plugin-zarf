@@ -8,7 +8,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/willswire/trivy-plugin-zarf/cmd/common"
-	logger "github.com/willswire/trivy-plugin-zarf/pkg"
+	"github.com/willswire/trivy-plugin-zarf/pkg/logger"
+	"github.com/willswire/trivy-plugin-zarf/pkg/zarf"
 	"io"
 	"os"
 	"os/exec"
@@ -18,7 +19,7 @@ import (
 
 func NewScanCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "scan",
+		Use:           "scan [flags] packageRef",
 		Short:         "Scan a Zarf package",
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  false,
@@ -35,6 +36,23 @@ func NewScanCommand() *cobra.Command {
 			}
 			return nil
 		},
+		Example: `# Scan a local zarf package:
+trivy zarf scan zarf-package-foo-amd64-1.2.3.tar.zst
+
+# Scan a package directly from an OCI registry:
+trivy zarf scan oci://registry.example.com/path/to/foo:1.2.3
+
+# Use a mirrored vulnerability database:
+trivy zarf scan --db-repository=https://registry.example.com/trivy-db oci://registry.example.com/path/to/foo:1.2.3
+
+# Skip signature validation for OCI registry packages:
+trivy zarf scan --skip-signature-validation oci://registry.example.com/path/to/foo:1.2.3
+
+# Pull and scan a specific architecture from an OCI registry:
+trivy zarf scan --arch=arm64 oci://registry.example.com/path/to/foo:1.2.3
+
+# Save JSON scan results to a directory:
+trivy zarf scan --output=./results zarf-package-foo-amd64-1.2.3.tar.zst`,
 	}
 
 	cmd.Flags().String(common.VScanDbRepositoryLong, common.VScanDbRepositoryDefault, common.VScanDbRepositoryUsage)
@@ -97,7 +115,7 @@ func scan(outputDir string, skipSignatureValidation bool, architecture string, d
 	if isOCIRef {
 		// Handle OCI reference
 		logger.Default().Info("Pulling Zarf package from OCI registry")
-		packageFile, err := pullZarfPackage(packageRef, tempDir, skipSignatureValidation, architecture)
+		packageFile, err := zarf.PullZarfPackage(packageRef, tempDir, skipSignatureValidation, architecture)
 		if err != nil {
 			logger.Default().Error("Error pulling Zarf package", "error", err)
 			return err
@@ -114,8 +132,7 @@ func scan(outputDir string, skipSignatureValidation bool, architecture string, d
 	}
 
 	// Extract the Zarf package
-	logger.Default().Info("Extracting Zarf package")
-	if err := extractZarfPackage(packageRef, tempDir); err != nil {
+	if err := zarf.ExtractZarfPackage(packageRef, tempDir); err != nil {
 		logger.Default().Error("Error extracting Zarf package", "error", err)
 		return err
 	}
@@ -134,75 +151,6 @@ func scan(outputDir string, skipSignatureValidation bool, architecture string, d
 		logger.Default().Error("Error scanning images", "errors", errors)
 	}
 	return nil
-}
-
-func extractZarfPackage(packagePath, targetDir string) error {
-	// Handle different package extensions (tar, tar.zst, etc.)
-	logger.Default().Info("Extracting Zarf package", "packagePath", packagePath)
-
-	// Use the syntax that matches your Zarf version
-	cmd := exec.Command("zarf", "tools", "archiver", "decompress", packagePath, targetDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err := cmd.Run()
-
-	if err != nil {
-		return fmt.Errorf("zarf decompression failed: %w", err)
-	}
-
-	logger.Default().Info("Package extracted", "targetDir", targetDir)
-	return nil
-}
-
-func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool, architecture string) (string, error) {
-	// Ensure the reference starts with oci://
-	if !strings.HasPrefix(ociRef, "oci://") {
-		return "", fmt.Errorf("invalid OCI reference format: %s (must start with oci://)", ociRef)
-	}
-
-	logger.Default().Info("Pulling Zarf package from OCI registry", "ociRef", ociRef)
-
-	// Create command to pull the package using zarf CLI but with improved handling
-	cmd := exec.Command("zarf", "package", "pull", ociRef, "-o", targetDir)
-	if skipSignatureValidation {
-		cmd.Args = append(cmd.Args, "--skip-signature-validation")
-	}
-
-	// Add architecture flag if specified
-	if architecture != "" {
-		cmd.Args = append(cmd.Args, "-a", architecture)
-	}
-
-	// Use zarf package pull command to pull the package to the targetDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err := cmd.Run()
-
-	if err != nil {
-		return "", fmt.Errorf("zarf package pull failed: %w", err)
-	}
-
-	logger.Default().Info("Package pulled", "targetDir", targetDir)
-
-	// Find the .tar.zst file in the targetDir
-	var packageFile string
-	entries, err := os.ReadDir(targetDir)
-	if err != nil {
-		return "", fmt.Errorf("error reading target directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".tar.zst") {
-			packageFile = filepath.Join(targetDir, entry.Name())
-			break
-		}
-	}
-
-	if packageFile == "" {
-		return "", fmt.Errorf("no .tar.zst file found in target directory after pull")
-	}
-
-	return packageFile, nil
 }
 
 func scanOCIImages(ociDir, outputDir string, dbRepository string) []error {
@@ -267,7 +215,7 @@ func scanOCIImage(descriptor specv1.Descriptor, ociDir string, outputDir string,
 	defer func(path string) {
 		err := os.RemoveAll(path)
 		if err != nil {
-			fmt.Printf("Error removing temp directory: %v\n", err)
+			logger.Default().Error("Error removing temp directory", "error", err, "path", path)
 		}
 	}(tempIndexDir)
 
@@ -287,19 +235,16 @@ func scanOCIImage(descriptor specv1.Descriptor, ociDir string, outputDir string,
 	}
 
 	// Run Trivy on this image
-	var cmd *exec.Cmd
+	cmd := exec.Command("trivy", "image", "--input", tempIndexDir, "--db-repository", dbRepository)
 	if outputDir != "" {
 		// Create a sanitized filename for JSON output
 		safeImageName := sanitizeFilename(imageName)
 		jsonOutputPath := filepath.Join(outputDir, safeImageName+".json")
 
-		// Use JSON output format and save to file
-		cmd = exec.Command("trivy", "image", "--format", "json", "--output", jsonOutputPath, "--input", tempIndexDir)
+		// Append the --format and --output flags to the command
+		cmd.Args = append(cmd.Args, "--format", "json", "--output", jsonOutputPath)
 
-		fmt.Printf("Saving JSON results to: %s\n", jsonOutputPath)
-	} else {
-		// Standard console output
-		cmd = exec.Command("trivy", "image", "--input", tempIndexDir, "--db-repository", dbRepository)
+		logger.Default().Info("Saving JSON results to output directory", "fileName", jsonOutputPath)
 	}
 
 	cmd.Stdout = os.Stdout
@@ -368,7 +313,7 @@ func copyFile(src, dst string) error {
 	defer func(in *os.File) {
 		err := in.Close()
 		if err != nil {
-			fmt.Printf("Error closing file: %v\n", err)
+			logger.Default().Error("Error closing file", "error", err, "path", in.Name())
 		}
 	}(in)
 
@@ -383,7 +328,7 @@ func copyFile(src, dst string) error {
 	defer func(out *os.File) {
 		err := out.Close()
 		if err != nil {
-			fmt.Printf("Error closing file: %v\n", err)
+			logger.Default().Error("Error closing file", "error", err, "path", out.Name())
 		}
 	}(out)
 

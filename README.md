@@ -21,7 +21,10 @@ The plugin handles both `application/vnd.oci.image.manifest.v1+json` and `applic
 ## Installation
 
 ```bash
-# Install the plugin
+# Install the plugin from the Trivy Plugin Database
+trivy plugin install zarf
+
+# Or, install it using the fully qualified reference
 trivy plugin install github.com/willswire/trivy-plugin-zarf
 
 # Verify installation
@@ -33,71 +36,82 @@ trivy plugin list
 ### Command Syntax
 
 ```bash
-trivy zarf [flags] <zarf-package.tar> or <oci://registry/repository:tag>
+trivy zarf scan [flags] {zarf-package-foo-amd64-1.2.3.tar.zst | oci://registry.example.com/path/to/foo:1.2.3}
 ```
 
-### Flags/Options
+### Helptext
 
-| Flag | Shorthand | Description |
-|------|-----------|-------------|
-| `--help` | `-h` | Display help information |
-| `--output DIR` | `-o DIR` | Save scan results as JSON files in specified directory |
-| `--skip-signature-validation` | | Skip signature validation when pulling from OCI registry |
-| `--arch ARCHITECTURE` | `-a ARCHITECTURE` | Architecture to pull for OCI images (e.g., `amd64`, `arm64`) |
-
-### Basic Examples
-
-Scan a local Zarf package:
-
-```bash
-trivy zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
 ```
+Scan a Zarf package
 
-Scan a package directly from an OCI registry:
+Usage:
+  trivy-plugin-zarf scan [flags] packageRef
 
-```bash
-trivy zarf oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+Examples:
+# Scan a local zarf package:
+trivy zarf scan zarf-package-foo-amd64-1.2.3.tar.zst
+
+# Scan a package directly from an OCI registry:
+trivy zarf scan oci://registry.example.com/path/to/foo:1.2.3
+
+# Use a mirrored vulnerability database:
+trivy zarf scan --db-repository=https://registry.example.com/trivy-db oci://registry.example.com/path/to/foo:1.2.3
+
+# Skip signature validation for OCI registry packages:
+trivy zarf scan --skip-signature-validation oci://registry.example.com/path/to/foo:1.2.3
+
+# Pull and scan a specific architecture from an OCI registry:
+trivy zarf scan --arch=arm64 oci://registry.example.com/path/to/foo:1.2.3
+
+# Save JSON scan results to a directory:
+trivy zarf scan --output=./results zarf-package-foo-amd64-1.2.3.tar.zst
+
+Flags:
+      --arch string                 Env: TRIVY_PLUGIN_ZARF_SCAN_ARCH
+                                    CfgFile: scan.arch
+                                    Architecture to pull for OCI images. If not specified, the architecture of the host will be used.
+      --db-repository string        Env: TRIVY_PLUGIN_ZARF_SCAN_DB_REPOSITORY
+                                    CfgFile: scan.db-repository
+                                    Trivy DB repository to use (default ghcr.io/aquasecurity/trivy-db) (default "ghcr.io/aquasecurity/trivy-db")
+  -h, --help                        help for scan
+  -o, --output string               Env: TRIVY_PLUGIN_ZARF_SCAN_OUTPUT
+                                    CfgFile: scan.output
+                                    Output directory for JSON scan results. If not specified, the results will be printed to stdout.
+      --skip-signature-validation   Env: TRIVY_PLUGIN_ZARF_SCAN_SKIP_SIGNATURE_VALIDATION
+                                    CfgFile: scan.skip-signature-validation
+                                    Skip signature validation when pulling a zarf package from an OCI registry.
+
+Global Flags:
+  -c, --config string       Env: TRIVY_PLUGIN_ZARF_CONFIG
+                            Optional config file (default $HOME/.trivy_plugin_zarf.yaml)
+      --log-format string   Env: TRIVY_PLUGIN_ZARF_LOG_FORMAT
+                            CfgFile: log-format
+                            Log format [console, json, dev, none] (default "console")
+  -l, --log-level string    Env: TRIVY_PLUGIN_ZARF_LOG_LEVEL
+                            CfgFile: log-level
+                            Log level [debug, info, warn, error] (default "info")
+      --no-color            Env: TRIVY_PLUGIN_ZARF_NO_COLOR
+                            CfgFile: no-color
+                            Disable colorized output
 ```
-
-Skip signature validation when pulling from OCI registry:
-
-```bash
-trivy zarf --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
-```
-
-Pull and scan a specific architecture from an OCI registry:
-
-```bash
-trivy zarf --arch amd64 oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
-```
-
-### Output Options
-
-Save JSON scan results to a directory:
-
-```bash
-trivy zarf --output ./scan-results zarf-package-dos-games-arm64-1.2.0.tar.zst
-```
-
-This will create individual JSON files for each image in the specified directory, making it easier to process results programmatically or integrate with other tools.
 
 ## Complete Workflow Example
 
 ```bash
 # Install the plugin
-trivy plugin install github.com/willswire/trivy-plugin-zarf
+trivy plugin install zarf
 
-# Pull a Zarf package from OCI registry
+# Pull a Zarf package from an OCI registry
 zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 
 # Scan the downloaded package and save results to a directory
-trivy zarf --output ./scan-results zarf-package-dos-games-arm64-1.2.0.tar.zst
+trivy zarf scan --output ./scan-results zarf-package-dos-games-arm64-1.2.0.tar.zst
 
 # Or scan directly from OCI in one step
-trivy zarf --skip-signature-validation --output ./scan-results oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+trivy zarf scan --skip-signature-validation --output ./scan-results oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 
 # Pull and scan a specific architecture from OCI in one step
-trivy zarf --arch arm64 --output ./scan-results oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+trivy zarf scan --arch arm64 --output ./scan-results oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 ```
 
 ## Development
@@ -111,6 +125,9 @@ cd trivy-plugin-zarf
 
 # Build the plugin
 go build
+
+# Or just run it
+go run main.go --help
 ```
 
 ### Local Testing
@@ -119,16 +136,16 @@ Run the plugin binary directly:
 
 ```bash
 # Test with a local package
-./trivy-plugin-zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
+go run main.go scan zarf-package-dos-games-arm64-1.2.0.tar.zst
 
 # Test with an OCI reference
-./trivy-plugin-zarf oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+go run main.go scan oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 
 # Test with output flags
-./trivy-plugin-zarf --output ./results zarf-package-dos-games-arm64-1.2.0.tar.zst
+go run main.go scan --output ./results zarf-package-dos-games-arm64-1.2.0.tar.zst
 
 # Test with architecture specification
-./trivy-plugin-zarf --arch arm64 oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
+go run main.go scan --arch arm64 oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
 ```
 
 ### Linking for Development
@@ -136,11 +153,14 @@ Run the plugin binary directly:
 You can also link the development version to test as a Trivy plugin:
 
 ```bash
+# Build the binary
+go build
+
 # Link the development version (from the plugin directory)
 ln -sf "$(pwd)/trivy-plugin-zarf" "$HOME/.trivy/plugins/zarf"
 
 # Test as a Trivy plugin
-trivy zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
+trivy zarf scan zarf-package-dos-games-arm64-1.2.0.tar.zst
 ```
 
 ## Testing
@@ -148,16 +168,14 @@ trivy zarf zarf-package-dos-games-arm64-1.2.0.tar.zst
 The project includes various tests to verify functionality:
 
 ```bash
-# Run all tests
-go test ./...
+# Run just unit tests
+go test -v ./...
 
-# Run specific test groups
-go test -v -run="TestFileAndDirExists|TestGetImageName"  # Unit tests
-go test -v -run="TestScanOCIImagesMock"                  # Mock tests
-go test -v -run="TestExtractAndScanIntegration"          # Integration tests
+# Run all tests
+go test -tags=integration -v ./...
 
 # Run tests with coverage report
-go test -coverprofile=coverage.out ./...
+go test -tags=integration -coverprofile=coverage.out -v ./...
 go tool cover -html=coverage.out
 ```
 
@@ -166,13 +184,7 @@ go tool cover -html=coverage.out
 For integration tests, you'll need:
 
 1. Zarf and Trivy installed and in your PATH
-2. A Zarf package to test with (e.g., `zarf-package-dos-games-arm64-1.2.0.tar.zst`)
-
-You can download a test package with:
-
-```bash
-zarf package pull --skip-signature-validation oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0
-```
+2. The ability to pull an OCI artifact from public `ghcr.io`
 
 ## Release Process
 
