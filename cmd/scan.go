@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"github.com/opencontainers/image-spec/specs-go"
 	specv1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -29,9 +28,44 @@ func NewScanCommand() *cobra.Command {
 			outputDir := viper.GetString(common.VScanOutput)
 			skipSignatureValidation := viper.GetBool(common.VScanSkipSignatureValidation)
 			arch := viper.GetString(common.VScanArch)
-
+			err := scan(outputDir, skipSignatureValidation, arch, dbRepository, args[0])
+			if err != nil {
+				logger.Default().Error("Error scanning Zarf package", "error", err)
+				return err
+			}
+			return nil
 		},
 	}
+
+	cmd.Flags().String(common.VScanDbRepositoryLong, common.VScanDbRepositoryDefault, common.VScanDbRepositoryUsage)
+	err := viper.BindPFlag(common.VScanDbRepository, cmd.Flags().Lookup(common.VScanDbRepositoryLong))
+	if err != nil {
+		logger.Default().Error("Error binding flag to viper", "error", err)
+		os.Exit(1)
+	}
+
+	cmd.Flags().StringP(common.VScanOutputLong, common.VScanOutputShort, common.VScanOutputDefault, common.VScanOutputUsage)
+	err = viper.BindPFlag(common.VScanOutput, cmd.Flags().Lookup(common.VScanOutputLong))
+	if err != nil {
+		logger.Default().Error("Error binding flag to viper", "error", err)
+		os.Exit(1)
+	}
+
+	cmd.Flags().Bool(common.VScanSkipSignatureValidationLong, common.VScanSkipSignatureValidationDefault, common.VScanSkipSignatureValidationUsage)
+	err = viper.BindPFlag(common.VScanSkipSignatureValidation, cmd.Flags().Lookup(common.VScanSkipSignatureValidationLong))
+	if err != nil {
+		logger.Default().Error("Error binding flag to viper", "error", err)
+		os.Exit(1)
+	}
+
+	cmd.Flags().String(common.VScanArchLong, common.VScanArchDefault, common.VScanArchUsage)
+	err = viper.BindPFlag(common.VScanArch, cmd.Flags().Lookup(common.VScanArchLong))
+	if err != nil {
+		logger.Default().Error("Error binding flag to viper", "error", err)
+		os.Exit(1)
+	}
+
+	return cmd
 }
 
 func scan(outputDir string, skipSignatureValidation bool, architecture string, dbRepository string, packageRef string) error {
@@ -62,7 +96,7 @@ func scan(outputDir string, skipSignatureValidation bool, architecture string, d
 	// Handle package according to its type
 	if isOCIRef {
 		// Handle OCI reference
-		fmt.Println("Pulling Zarf package from OCI registry...")
+		logger.Default().Info("Pulling Zarf package from OCI registry")
 		packageFile, err := pullZarfPackage(packageRef, tempDir, skipSignatureValidation, architecture)
 		if err != nil {
 			logger.Default().Error("Error pulling Zarf package", "error", err)
@@ -80,7 +114,7 @@ func scan(outputDir string, skipSignatureValidation bool, architecture string, d
 	}
 
 	// Extract the Zarf package
-	fmt.Println("Extracting Zarf package...")
+	logger.Default().Info("Extracting Zarf package")
 	if err := extractZarfPackage(packageRef, tempDir); err != nil {
 		logger.Default().Error("Error extracting Zarf package", "error", err)
 		return err
@@ -104,7 +138,7 @@ func scan(outputDir string, skipSignatureValidation bool, architecture string, d
 
 func extractZarfPackage(packagePath, targetDir string) error {
 	// Handle different package extensions (tar, tar.zst, etc.)
-	fmt.Printf("Extracting Zarf package: %s\n", packagePath)
+	logger.Default().Info("Extracting Zarf package", "packagePath", packagePath)
 
 	// Use the syntax that matches your Zarf version
 	cmd := exec.Command("zarf", "tools", "archiver", "decompress", packagePath, targetDir)
@@ -116,7 +150,7 @@ func extractZarfPackage(packagePath, targetDir string) error {
 		return fmt.Errorf("zarf decompression failed: %w", err)
 	}
 
-	fmt.Printf("Package extracted to: %s\n", targetDir)
+	logger.Default().Info("Package extracted", "targetDir", targetDir)
 	return nil
 }
 
@@ -126,7 +160,7 @@ func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool, arc
 		return "", fmt.Errorf("invalid OCI reference format: %s (must start with oci://)", ociRef)
 	}
 
-	fmt.Printf("Pulling Zarf package from OCI registry: %s\n", ociRef)
+	logger.Default().Info("Pulling Zarf package from OCI registry", "ociRef", ociRef)
 
 	// Create command to pull the package using zarf CLI but with improved handling
 	cmd := exec.Command("zarf", "package", "pull", ociRef, "-o", targetDir)
@@ -148,7 +182,7 @@ func pullZarfPackage(ociRef, targetDir string, skipSignatureValidation bool, arc
 		return "", fmt.Errorf("zarf package pull failed: %w", err)
 	}
 
-	fmt.Printf("Package pulled to targetDir: %s\n", targetDir)
+	logger.Default().Info("Package pulled", "targetDir", targetDir)
 
 	// Find the .tar.zst file in the targetDir
 	var packageFile string
@@ -195,12 +229,12 @@ func scanOCIImages(ociDir, outputDir string, dbRepository string) []error {
 
 	// No images to scan
 	if len(ociIndex.Manifests) == 0 {
-		fmt.Println("No images found in the Zarf package")
+		logger.Default().Info("No images found in the Zarf package")
 		return errors
 	}
 
 	// Scan each image listed in the index
-	fmt.Printf("Found %d images to scan\n", len(ociIndex.Manifests))
+	logger.Default().Info("Found images to scan", "count", len(ociIndex.Manifests))
 
 	for _, descriptor := range ociIndex.Manifests {
 		err := scanOCIImage(descriptor, ociDir, outputDir, dbRepository)
@@ -216,10 +250,7 @@ func scanOCIImages(ociDir, outputDir string, dbRepository string) []error {
 func scanOCIImage(descriptor specv1.Descriptor, ociDir string, outputDir string, dbRepository string) error {
 	imageName := getImageNameFromDescriptor(descriptor)
 	mediaType := descriptor.MediaType
-	fmt.Printf("\n==================================================\n")
-	fmt.Printf("Scanning image: %s\n", imageName)
-	fmt.Printf("Media type: %s\n", mediaType)
-	fmt.Printf("==================================================\n")
+	logger.Default().Info("Scanning image", "imageName", imageName, "mediaType", mediaType)
 
 	// Create a temporary index.json with just this image
 	tempIndex := specv1.Index{
