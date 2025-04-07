@@ -208,59 +208,6 @@ func WithContext(ctx context.Context, logger *slog.Logger) context.Context {
 	return context.WithValue(ctx, defaultCtxKey, logger)
 }
 
-// TODO (@austinabro321) once we switch over to the new logger completely the enabled key & logic should be deleted
-type ctxKeyEnabled struct{}
-
-var defaultCtxKeyEnabled = ctxKeyEnabled{}
-
-// WithLoggingEnabled allows stores a value to determine whether or not slog logging is enabled
-func WithLoggingEnabled(ctx context.Context, enabled bool) context.Context {
-	return context.WithValue(ctx, defaultCtxKeyEnabled, enabled)
-}
-
-// Enabled returns true if slog logging is enabled
-func Enabled(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	enabled := ctx.Value(defaultCtxKeyEnabled)
-	switch v := enabled.(type) {
-	case bool:
-		return v
-	default:
-		return false
-	}
-}
-
-// From takes a context and reads out a *slog.Logger. If From does not find a value it will return a discarding logger
-// similar to log-format "none".
-func From(ctx context.Context) *slog.Logger {
-	// Check that we have a ctx
-	if ctx == nil {
-		return newDiscard()
-	}
-	// Grab value from key
-	log := ctx.Value(defaultCtxKey)
-	if log == nil {
-		return newDiscard()
-	}
-
-	// Ensure our value is a *slog.Logger before we cast.
-	switch l := log.(type) {
-	case *slog.Logger:
-		return l
-	default:
-		// Not reached
-		panic(fmt.Sprintf("unexpected value type on context key: %T", log))
-	}
-}
-
-// newDiscard returns a logger without any settings that goes to io.Discard
-func newDiscard() *slog.Logger {
-	h := slog.NewTextHandler(DestinationNone, &slog.HandlerOptions{})
-	return slog.New(h)
-}
-
 // Default retrieves a logger from the package default. This is intended as a fallback when a logger cannot easily be
 // passed in as a dependency, like when developing a new function. Use it like you would use context.TODO().
 func Default() *slog.Logger {
