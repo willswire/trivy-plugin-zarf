@@ -28,6 +28,5 @@ go.work
 
 # The plugin binary
 trivy-plugin-zarf
-zarf
 
 testdata/

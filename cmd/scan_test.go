@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"os"
@@ -8,6 +8,7 @@ import (
 	"github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+//goland:noinspection GoUnhandledErrorResult
 func TestFileAndDirExists(t *testing.T) {
 	// Create a temporary directory
 	tempDir, err := os.MkdirTemp("", "trivy-zarf-test-*")
@@ -41,6 +42,7 @@ func TestFileAndDirExists(t *testing.T) {
 	}
 }
 
+//goland:noinspection GoUnhandledErrorResult
 func TestGetImageNameFromDescriptor(t *testing.T) {
 	// Test with org.opencontainers.image.ref.name annotation
 	descriptor := v1.Descriptor{
@@ -114,6 +116,7 @@ func TestGetImageNameFromDescriptor(t *testing.T) {
 	}
 }
 
+//goland:noinspection GoUnhandledErrorResult
 func TestCopyFile(t *testing.T) {
 	// Create temporary directories
 	srcDir, err := os.MkdirTemp("", "trivy-zarf-test-src-*")
@@ -152,6 +155,7 @@ func TestCopyFile(t *testing.T) {
 	}
 }
 
+//goland:noinspection GoUnhandledErrorResult
 func TestCopyDir(t *testing.T) {
 	// Create temporary directories
 	srcDir, err := os.MkdirTemp("", "trivy-zarf-test-src-*")
@@ -222,6 +226,7 @@ func TestCopyDir(t *testing.T) {
 	}
 }
 
+//goland:noinspection GoUnhandledErrorResult
 func TestSanitizeFilename(t *testing.T) {
 	testCases := []struct {
 		input    string

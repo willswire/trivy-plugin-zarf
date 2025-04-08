@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/willswire/trivy-plugin-zarf/pkg/zarf"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,46 +44,37 @@ func TestFullIntegration(t *testing.T) {
 	defer os.RemoveAll(downloadDir)
 
 	// Pull the package from OCI registry
-	packageFile, err := pullZarfPackage(ociRef, downloadDir, true, "")
+	packageFile, err := zarf.PullZarfPackage(ociRef, downloadDir, true, "")
 	if err != nil {
 		t.Fatalf("Failed to pull package from OCI registry: %v", err)
 	}
 	t.Logf("Successfully pulled package to: %s", packageFile)
 
-	// Build the binary if it doesn't exist
-	binaryPath := "./trivy-plugin-zarf"
-	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		cmd := exec.Command("go", "build")
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("Failed to build binary: %v, stderr: %s", err, stderr.String())
-		}
-	}
-
 	// Run the binary with the file reference
-	cmd := exec.Command(binaryPath, packageFile)
+	binaryPath := "go"
+	args := []string{"run", "main.go", "scan", packageFile}
+	cmd := exec.Command(binaryPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	t.Logf("Running: %s %s", binaryPath, packageFile)
+	t.Logf("Running: %s %s", binaryPath, args)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run binary with file reference: %v\nStdout: %s\nStderr: %s",
 			err, stdout.String(), stderr.String())
 	}
 
 	// Check the output to ensure it contains expected content
-	output := stdout.String()
-	t.Logf("Command output:\n%s", output)
+	t.Logf("Command stdout:\n%s", stdout.String())
+	t.Logf("Command stderr:\n%s", stderr.String())
 
 	expectedOutputs := []string{
-		"Package extracted to",
-		"Found 1 images to scan",
+		"Package extracted",
+		"Found images to scan",
 	}
 
 	for _, expected := range expectedOutputs {
-		if !bytes.Contains(stdout.Bytes(), []byte(expected)) {
+		if !bytes.Contains(stderr.Bytes(), []byte(expected)) {
 			t.Errorf("Expected output to contain '%s', but it didn't", expected)
 		}
 	}
@@ -103,40 +95,31 @@ func TestOCIIntegration(t *testing.T) {
 	// Use a known Zarf package OCI reference
 	ociRef := "oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0"
 
-	// Build the binary if it doesn't exist
-	binaryPath := "./trivy-plugin-zarf"
-	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		cmd := exec.Command("go", "build")
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("Failed to build binary: %v, stderr: %s", err, stderr.String())
-		}
-	}
-
 	// Run the binary with the OCI reference
-	cmd := exec.Command(binaryPath, "--skip-signature-validation", ociRef)
+	binaryPath := "go"
+	args := []string{"run", "main.go", "scan", "--skip-signature-validation", ociRef}
+	cmd := exec.Command(binaryPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	t.Logf("Running: %s %s", binaryPath, ociRef)
+	t.Logf("Running: %s %s", binaryPath, args)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run binary with OCI reference: %v\nStdout: %s\nStderr: %s",
 			err, stdout.String(), stderr.String())
 	}
 
 	// Check the output to ensure it contains expected content
-	output := stdout.String()
-	t.Logf("Command output:\n%s", output)
+	t.Logf("Command stdout:\n%s", stdout.String())
+	t.Logf("Command stderr:\n%s", stderr.String())
 
 	expectedOutputs := []string{
-		"Package extracted to",
-		"Found 1 images to scan",
+		"Package extracted",
+		"Found images to scan",
 	}
 
 	for _, expected := range expectedOutputs {
-		if !bytes.Contains(stdout.Bytes(), []byte(expected)) {
+		if !bytes.Contains(stderr.Bytes(), []byte(expected)) {
 			t.Errorf("Expected output to contain '%s', but it didn't", expected)
 		}
 	}
@@ -157,17 +140,6 @@ func TestJSONOutputIntegration(t *testing.T) {
 	// Use a known Zarf package OCI reference
 	ociRef := "oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0"
 
-	// Build the binary if it doesn't exist
-	binaryPath := "./trivy-plugin-zarf"
-	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		cmd := exec.Command("go", "build")
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("Failed to build binary: %v, stderr: %s", err, stderr.String())
-		}
-	}
-
 	// Create a temporary output directory
 	outputDir, err := os.MkdirTemp("", "trivy-zarf-json-output-*")
 	if err != nil {
@@ -176,12 +148,14 @@ func TestJSONOutputIntegration(t *testing.T) {
 	defer os.RemoveAll(outputDir)
 
 	// Run the binary with the JSON output flag
-	cmd := exec.Command(binaryPath, "--skip-signature-validation", "--output", outputDir, ociRef)
+	binaryPath := "go"
+	args := []string{"run", "main.go", "scan", "--skip-signature-validation", "--output", outputDir, ociRef}
+	cmd := exec.Command(binaryPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	t.Logf("Running: %s --output %s %s", binaryPath, outputDir, ociRef)
+	t.Logf("Running: %s %s", binaryPath, args)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run binary with JSON output: %v\nStdout: %s\nStderr: %s",
 			err, stdout.String(), stderr.String())
@@ -240,39 +214,31 @@ func TestArchitectureIntegration(t *testing.T) {
 
 	ociRef := "oci://ghcr.io/zarf-dev/packages/dos-games:1.2.0"
 
-	binaryPath := "./trivy-plugin-zarf"
-	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		cmd := exec.Command("go", "build")
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("Failed to build binary: %v, stderr: %s", err, stderr.String())
-		}
-	}
-
-	cmd := exec.Command(binaryPath, "--skip-signature-validation", "--arch", "amd64", ociRef)
+	binaryPath := "go"
+	args := []string{"run", "main.go", "scan", "--skip-signature-validation", "--arch", "amd64", ociRef}
+	cmd := exec.Command(binaryPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	t.Logf("Running: %s --arch amd64 %s", binaryPath, ociRef)
+	t.Logf("Running: %s %s", binaryPath, args)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to run binary with arch flag: %v\nStdout: %s\nStderr: %s",
 			err, stdout.String(), stderr.String())
 	}
 
 	// Check the output
-	output := stdout.String()
-	t.Logf("Command output:\n%s", output)
+	t.Logf("Command stdout:\n%s", stdout.String())
+	t.Logf("Command stderr:\n%s", stderr.String())
 
 	// Verify the output contains expected content
 	expectedOutputs := []string{
-		"Package extracted to",
-		"Found 1 images to scan",
+		"Package extracted",
+		"Found images to scan",
 	}
 
 	for _, expected := range expectedOutputs {
-		if !bytes.Contains(stdout.Bytes(), []byte(expected)) {
+		if !bytes.Contains(stderr.Bytes(), []byte(expected)) {
 			t.Errorf("Expected output to contain '%s', but it didn't", expected)
 		}
 	}

@@ -28,4 +28,4 @@ Software, like nature, follows eternal cycles of creation and decay. Our approac
 - Error wrapping: Use fmt.Errorf with %w for error context
 - Formatting: Use gofmt/goimports for consistent code formatting
 - Line length: Prefer lines under 100 characters
-- Logging: Use fmt.Printf for user feedback and progress reporting
+- Logging: Use `logger.Default().<level>` for user feedback and progress reporting
