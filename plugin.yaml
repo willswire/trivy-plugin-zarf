@@ -9,22 +9,22 @@ platforms:
   - selector:
       os: darwin
       arch: amd64
-    uri: https://github.com/willswire/trivy-plugin-zarf/releases/download/v0.4.0/trivy-plugin-zarf_0.4.0_darwin-amd64.tar.gz
+    uri: https://github.com/willswire/trivy-plugin-zarf/releases/download/v0.4.1/trivy-plugin-zarf_0.4.1_darwin-amd64.tar.gz
     bin: ./zarf
   - selector:
       os: darwin
       arch: arm64
-    uri: https://github.com/willswire/trivy-plugin-zarf/releases/download/v0.4.0/trivy-plugin-zarf_0.4.0_darwin-arm64.tar.gz
+    uri: https://github.com/willswire/trivy-plugin-zarf/releases/download/v0.4.1/trivy-plugin-zarf_0.4.1_darwin-arm64.tar.gz
     bin: ./zarf
   - selector:
       os: linux
       arch: amd64
-    uri: https://github.com/willswire/trivy-plugin-zarf/releases/download/v0.4.0/trivy-plugin-zarf_0.4.0_linux-amd64.tar.gz
+    uri: https://github.com/willswire/trivy-plugin-zarf/releases/download/v0.4.1/trivy-plugin-zarf_0.4.1_linux-amd64.tar.gz
     bin: ./zarf
   - selector:
       os: linux
       arch: arm64
-    uri: https://github.com/willswire/trivy-plugin-zarf/releases/download/v0.4.0/trivy-plugin-zarf_0.4.0_linux-arm64.tar.gz
+    uri: https://github.com/willswire/trivy-plugin-zarf/releases/download/v0.4.1/trivy-plugin-zarf_0.4.1_linux-arm64.tar.gz
     bin: ./zarf
 requirements:
   - name: zarf
