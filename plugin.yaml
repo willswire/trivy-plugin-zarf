@@ -1,6 +1,6 @@
 name: zarf
 repository: github.com/willswire/trivy-plugin-zarf
-version: 0.4.0
+version: 0.4.1
 maintainer: willswire
 summary: Scan Zarf packages for vulnerabilities
 usage: zarf scan <zarf-package.tar> or <oci://registry/repository:tag>
