@@ -148,7 +148,7 @@ func scan(outputDir string, skipSignatureValidation bool, architecture string, d
 	// Scan each image in the OCI layout
 	errors := scanOCIImages(ociDir, outputDir, dbRepository)
 	if len(errors) != 0 {
-		logger.Default().Error("Error scanning images", "errors", errors)
+		return fmt.Errorf("error scanning images: %s", errorsToString(errors))
 	}
 	return nil
 }
@@ -251,7 +251,7 @@ func scanOCIImage(descriptor specv1.Descriptor, ociDir string, outputDir string,
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		// Return the error
-		return fmt.Errorf("Warning: Trivy scan failed for image %s: %v\n", imageName, err)
+		return fmt.Errorf("Trivy scan failed for image %s: %v\n", imageName, err)
 	}
 	return nil
 }
@@ -415,4 +415,17 @@ func sanitizeFilename(imageName string) string {
 	}
 
 	return sanitized
+}
+
+func errorsToString(errs []error) string {
+	var b strings.Builder
+	for i, err := range errs {
+		if err != nil {
+			b.WriteString(err.Error())
+			if i < len(errs)-1 {
+				b.WriteString("; ")
+			}
+		}
+	}
+	return b.String()
 }
